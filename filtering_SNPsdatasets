@@ -1,0 +1,105 @@
+###########################################################################
+##################### Filtering out poor quality SNPs #####################
+###########################################################################
+
+projects=(PRJNAXXXXX PRJNAXXXX)
+
+pids=()
+
+for proj in "${projects[@]}"; do
+    base_dir="/path/to/${proj}"
+    vcf_filtered_dir="${base_dir}/vcf_filtered"
+    
+    mkdir -p "${vcf_filtered_dir}"
+
+    if [ -d "${base_dir}/vcf" ]; then
+        vcf_source="${base_dir}/vcf"
+        echo "vcf file found in: ${vcf_source}"
+    else
+        vcf_source="${base_dir}"
+        echo "no vcf file found, look for it in main folder: ${vcf_source}"
+    fi
+    
+    vcf_files=("${vcf_source}"/*.vcf.gz)
+
+    for vcf_file in "${vcf_files[@]}"; do
+        filename=$(basename "${vcf_file}" .vcf)
+        echo "Processing ${filename}"
+        
+        output_prefix="${vcf_filtered_dir}/${filename}_mac1dp3q30m50"
+          
+        vcftools --gzvcf "${vcf_file}" \
+        --mac 1 --minDP 3 --minQ 30 --max-missing 0.5 \
+        --remove-indels --recode \
+        --out "${output_prefix}" &
+        
+        pids+=($!)
+        
+        echo "File filtered: ${filename} (PID: ${!})"
+
+    done
+done
+
+for pid in "${pids[@]}"; do
+    wait $pid
+done
+
+#########################################################################################
+##################### Checking individual missingness & relatedness #####################
+#########################################################################################
+
+projects=(PRJNAXXXXX PRJNAXXXX)
+
+MAX_PARALLEL=66
+pids=()
+
+for proj in "${projects[@]}"; do
+    vcf_dir="/path/to/${proj}/vcf_filtered"
+    
+    [ ! -d "$vcf_dir" ] && echo "not found: $vcf_dir" && continue
+    
+        vcf_input=""
+    candidate=$(ls ${vcf_dir}/*_mac1dp3q30m50.vcf 2>/dev/null | head -1)
+    if [ -n "$candidate" ]; then
+        vcf_input="$candidate"
+    else
+        candidate=$(ls ${vcf_dir}/*.recode.vcf 2>/dev/null | head -1)
+        if [ -n "$candidate" ]; then
+            vcf_input="$candidate"
+        fi
+    fi
+    
+    if [ -z "$vcf_input" ]; then
+        echo "not found *_mac1dp3q30m50.vcf o .recode.vcf it is in $vcf_dir"
+    else
+        echo "file found"
+    fi
+
+    # Missingness
+    vcftools --vcf "$vcf_input" \
+        --missing-indv \
+        --out "${vcf_dir}/${proj}" &
+    pids+=($!)
+    
+    # Relatedness2
+    vcftools --vcf "$vcf_input" \
+        --relatedness2 \
+        --out "${vcf_dir}/${proj}" &
+    pids+=($!)
+    
+    while [ ${#pids[@]} -ge $MAX_PARALLEL ]; do
+        echo "$MAX_PARALLEL ongoing.."
+        sleep 10
+        new_pids=()
+        for pid in "${pids[@]}"; do
+            if kill -0 $pid 2>/dev/null; then
+                new_pids+=($pid)
+            fi
+        done
+        pids=("${new_pids[@]}")
+    done
+done
+
+for pid in "${pids[@]}"; do
+    wait $pid
+done
