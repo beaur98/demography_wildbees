@@ -79,6 +79,7 @@ for proj in "${projects[@]}"; do
     vcftools --vcf "$vcf_input" \
         --missing-indv \
         --out "${vcf_dir}/${proj}" &
+    mawk '$5 > 0.51' ${vcf_dir}/${proj}.imiss 2>/dev/null | cut -f1 > ${vcf_dir}/lowDP.indv &
     pids+=($!)
     
     # Relatedness2
@@ -103,3 +104,22 @@ done
 for pid in "${pids[@]}"; do
     wait $pid
 done
+
+# for social species once the lowDP.ind is produced, you need to manually check the relatedness and add to the list in lowDP.ind the samples with
+# relatedness > 0.20 since they are probably part of the same colony. once edited lowDP.ind, then you can proceed and remove the individuals from the vcf file
+
+
+for proj in "${projects[@]}"; do
+    # Filter out individuals with relatedness > 0.20 and individual missingness > 0.51
+    vcftools \
+      --vcf "$vcf_input" \
+      --remove lowDP.indv \
+      --recode --recode-INFO-all \
+      --out "${vcf_dir}/${proj}_mac1dp3q30m50im51nr"
+done
+
+
+
+
+
+
