@@ -64,5 +64,5 @@ for proj in "${projects[@]}"; do
 
     # Rimuovi SNP con alta eterozigosi (usando file generato manualmente)
     grep -Fwvf "SNPShighPropHE06_${proj}.txt" "$vcf_input" > "${proj}_mac1dp3q30m50im51nrm90He.recode.vcf"
-
+done
   
