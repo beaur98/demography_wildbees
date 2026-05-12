@@ -1,0 +1,89 @@
+#!/bin/bash
+
+projects=(PRJNAXXXXX PRJNAXXXX)
+vcf_base_dir="/path/to"
+
+for proj in "${projects[@]}"; do
+    vcf_dir="${vcf_base_dir}/${proj}/vcf_filtered"
+    cd "$vcf_dir" || continue
+
+    vcf_input="${proj}_mac1dp3q30m50im51nrm90He.recode.vcf"
+    if [ ! -f "$vcf_input" ]; then
+        echo "VCF filtrato non trovato per $proj, esegui prima step1"
+        continue
+    fi
+
+    echo "Analisi errori per $proj"
+    TMP=$(mktemp)
+    bcftools query -f '%CHROM\t%POS[\t%GT:%DP]\n' "$vcf_input" > "$TMP"
+
+    # Conteggi per 1 read
+    R1H01S0=$(grep -Eo '(^|[[:space:]])0[/|]1:1($|[[:space:]])' "$TMP" | wc -l)
+    R1H01S1=$(grep -Eo '(^|[[:space:]])1[/|]0:1($|[[:space:]])' "$TMP" | wc -l)
+    R1H0S1=$(grep -Eo '(^|[[:space:]])0[/|]0:1($|[[:space:]])' "$TMP" | wc -l)
+    R1H1S1=$(grep -Eo '(^|[[:space:]])1[/|]1:1($|[[:space:]])' "$TMP" | wc -l)
+    R1GEN=$((R1H01S0+R1H01S1+R1H0S1+R1H1S1))
+    R1ERR1=$(echo "$R1GEN/2" | bc -l)
+    R1ERR2=$(echo "$R1GEN*0.75" | bc -l)
+
+    # Conteggi per 2 read
+    R2H01S0=$(grep -Eo '(^|[[:space:]])0[/|]1:2($|[[:space:]])' "$TMP" | wc -l)
+    R2H01S2=$(grep -Eo '(^|[[:space:]])1[/|]0:2($|[[:space:]])' "$TMP" | wc -l)
+    R2H0S1=$(grep -Eo '(^|[[:space:]])0[/|]0:2($|[[:space:]])' "$TMP" | wc -l)
+    R2H1S1=$(grep -Eo '(^|[[:space:]])1[/|]1:2($|[[:space:]])' "$TMP" | wc -l)
+    R2GEN=$((R2H01S0+R2H01S2+R2H1S1+R2H0S1))
+    R2ERR1=$(echo "$R2GEN/4" | bc -l)
+    R2ERR2=$(echo "$R2GEN*0.5625" | bc -l)
+
+    # Conteggi per 3 read
+    R3H01S0=$(grep -Eo '(^|[[:space:]])0[/|]1:3($|[[:space:]])' "$TMP" | wc -l)
+    R3H01S2=$(grep -Eo '(^|[[:space:]])1[/|]0:3($|[[:space:]])' "$TMP" | wc -l)
+    R3H0S1=$(grep -Eo '(^|[[:space:]])0[/|]0:3($|[[:space:]])' "$TMP" | wc -l)
+    R3H1S3=$(grep -Eo '(^|[[:space:]])1[/|]1:3($|[[:space:]])' "$TMP" | wc -l)
+    R3GEN=$((R3H01S0+R3H01S2+R3H0S1+R3H1S3))
+    R3ERR1=$(echo "$R3GEN/8" | bc -l)
+    R3ERR2=$(echo "$R3GEN*0.42" | bc -l)
+
+    # Conteggi per 4 read (solo omozigoti)
+    R4H0=$(grep -Eo '(^|[[:space:]])0[/|]0:4($|[[:space:]])' "$TMP" | wc -l)
+    R4H1=$(grep -Eo '(^|[[:space:]])1[/|]1:4($|[[:space:]])' "$TMP" | wc -l)
+    R4GEN=$((R4H0+R4H1))
+    R4ERR1=$(echo "$R4GEN/16" | bc -l)
+    R4ERR2=$(echo "$R4GEN*0.316" | bc -l)
+
+    # Conteggi per 5 read (solo omozigoti)
+    R5H0=$(grep -Eo '(^|[[:space:]])0[/|]0:5($|[[:space:]])' "$TMP" | wc -l)
+    R5H1=$(grep -Eo '(^|[[:space:]])1[/|]1:5($|[[:space:]])' "$TMP" | wc -l)
+    R5GEN=$((R5H0+R5H1))
+    R5ERR1=$(echo "$R5GEN/32" | bc -l)
+    R5ERR2=$(echo "$R5GEN*0.237" | bc -l)
+
+    # Totali
+    IND=$(bcftools query -l "$vcf_input" | wc -l)
+    LOCI=$(bcftools view -H "$vcf_input" | wc -l)
+    MISSING=$(grep -Eo '(^|[[:space:]])\./\.:([0-9]+|\.)($|[[:space:]])|(^|[[:space:]])\.\|\.:([0-9]+|\.)($|[[:space:]])' "$TMP" | wc -l)
+    GENO=$((IND * LOCI - MISSING))
+
+    TOTERR1=$(echo "$R1ERR1+$R2ERR1+$R3ERR1+$R4ERR1+$R5ERR1" | bc -l)
+    TOTERR2=$(echo "$R1ERR2+$R2ERR2+$R3ERR2+$R4ERR2+$R5ERR2" | bc -l)
+    ERRRATEL=$(echo "$TOTERR1/$GENO" | bc -l)
+    ERRRATEH=$(echo "$TOTERR2/$GENO" | bc -l)
+    ALL=$((R1GEN+R2GEN+R3GEN+R4GEN+R5GEN))
+    ERRALL=$(echo "$ALL/$GENO" | bc -l)
+
+    # Output
+    {
+        echo "Error count per $proj"
+        echo "Genotipi con 1 read: range $R1ERR1 - $R1ERR2"
+        echo "Genotipi con 2 read: range $R2ERR1 - $R2ERR2"
+        echo "Genotipi con 3 read: range $R3ERR1 - $R3ERR2"
+        echo "Genotipi con 4 read: range $R4ERR1 - $R4ERR2"
+        echo "Genotipi con 5 read: range $R5ERR1 - $R5ERR2"
+        echo "Totale genotipi (esclusi missing): $GENO"
+        echo "Tasso di errore potenziale: $ERRRATEL - $ERRRATEH"
+        echo "Scorched earth (tutti gli omozigoti a bassa depth errati): $ERRALL"
+    } > "EstimateofError_${proj}.txt"
+
+    rm -f "$TMP"
+    echo "Risultati salvati in EstimateofError_${proj}.txt"
+done
