@@ -1,0 +1,68 @@
+#!/bin/bash
+
+#############################################################################################
+######################### Hardy-Weinberg Equilibrium for each SNPs ##########################
+#############################################################################################
+projects=(PRJNAXXXXX PRJNAXXXX)
+for proj in "${projects[@]}"; do
+    vcf_dir="/path/to/${proj}/vcf_filtered"
+    cd "$vcf_dir" || continue
+
+    vcf_input=$(ls ${proj}_mac1dp3q30m50im51nrm90.recode.vcf 2>/dev/null | head -1)
+
+    if [ -z "$vcf_input" ]; then
+        echo "VCF not found for $proj, skipping..."
+        continue
+    fi
+
+    echo "Processing $proj HWE..."
+    vcftools --vcf "$vcf_input" --hardy --out "test_hwe_${proj}"
+done
+
+#################################################################################################################
+######################### Run manually in python env to filter out heterozigosity > 60% #########################
+#################################################################################################################
+: '
+#!/usr/bin/env python
+# coding: utf-8
+import sys
+
+hwe_file = sys.argv[1]   # es. test_hwe_PRJNAxxxx.hwe
+out_file = sys.argv[2]   # es. SNPShighPropHE06_PRJNAxxxx.txt
+
+with open(hwe_file, "r") as f:
+    results = []
+    for line in f.readlines()[1:]:
+        Chr, pos, obs = line.strip().split("\t")[:3]
+        x1, x2, x3 = list(map(int, obs.strip().split("/")))
+        het_pcent = (x2 * 100) / (x1 + x2 + x3)
+        if het_pcent > 60:
+            results.append(Chr + "\t" + pos)
+
+with open(out_file, "w") as f:
+    f.write("CHR\tPOS\n")
+    for entry in results:
+        f.write(entry + "\n")
+'
+
+##################################################################################################################
+######################### Filtering, error counting, LD pruning, PCA #############################################
+##################################################################################################################
+
+for proj in "${projects[@]}"; do
+    vcf_dir="/path/to/${proj}/vcf_filtered"
+    cd "$vcf_dir" || continue
+
+    # Ridefiniamo vcf_input (il file di partenza)
+    vcf_input=$(ls ${proj}_mac1dp3q30m50im51nrm90.recode.vcf 2>/dev/null | head -1)
+    if [ -z "$vcf_input" ]; then
+        echo "VCF not found for $proj, skipping..."
+        continue
+    fi
+
+    echo "Processing $proj filtering and PCA..."
+
+    # Rimuovi SNP con alta eterozigosi (usando file generato manualmente)
+    grep -Fwvf "SNPShighPropHE06_${proj}.txt" "$vcf_input" > "${proj}_mac1dp3q30m50im51nrm90He.recode.vcf"
+
+  
