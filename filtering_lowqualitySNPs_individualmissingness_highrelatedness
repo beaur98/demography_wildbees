@@ -118,8 +118,18 @@ for proj in "${projects[@]}"; do
       --out "${vcf_dir}/${proj}_mac1dp3q30m50im51nr"
 done
 
+###############################################################################
+##################### Filtering out high missingness SNPs #####################
+###############################################################################
 
-
+for proj in "${projects[@]}"; do
+    # Filter out SNPs with missingness higher than 0.1
+    vcftools \
+        --vcf "$vcf_input" \
+        --min-meanDP 5 --max-meanDP 100 --minQ 30 --max-missing 0.9 \
+        --remove-indels --recode \
+        --out  "${vcf_dir}/${proj}_mac1dp3q30m50im51nrm90"
+done
 
 
 
